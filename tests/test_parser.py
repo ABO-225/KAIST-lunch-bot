@@ -132,3 +132,52 @@ def test_prices_per_corner():
 
     from menu.summarizer import summarize_items
     assert summarize_items(["쌀밥/흑미밥", "묵은지순살닭찜", "콩나물국"], config.MAIN_KEYWORDS) == "묵은지순살닭찜 · 쌀밥/흑미밥 · 콩나물국"
+
+
+def test_dinner():
+    from menu.scraper import parse_lunch
+
+    html = EAST_HTML.replace("<td>-</td>", "<td>(한식)<br>고등어구이<br>쌀밥<br>미역국</td>").replace(
+        "<p>중식(5,500원) / 외부인(6,300원)</p>", "<p>중식(5,500원) 석식(6,000원)</p>")
+    hours, items, price, _ = parse_lunch(html, "석식")
+    assert hours == "17:00~19:00"
+    assert items == ["(한식)", "고등어구이", "쌀밥", "미역국"]
+    assert price == "6,000원"
+
+    d = dt.date(2026, 11, 11)
+    m = Menu("east1", "동측", d, "", ["쌀밥"], meal="석식")
+    assert format_message([m], d).startswith("[KAIST 저녁]")
+
+
+def test_must_show():
+    import config
+    from menu.summarizer import summarize_items
+
+    items = ["쌀밥", "된장국", "마라샐러드", "로제떡볶이", "깍두기"]
+    out = summarize_items(items, config.MAIN_KEYWORDS, (), (), config.MUST_SHOW_KEYWORDS)
+    assert out == "마라샐러드 · 로제떡볶이 · 쌀밥 · 된장국"
+
+
+def test_config_keywords_not_merged():
+    import config
+    assert all("\n" not in k and len(k) <= 6 for k in config.MAIN_KEYWORDS)
+    assert "탕수육" in config.MAIN_KEYWORDS and "소고기" in config.MAIN_KEYWORDS
+
+
+def test_dinner_price_line_and_fallback():
+    import config
+    from menu.formatter import format_compact
+    from menu.scraper import parse_price_table
+    from menu.summarizer import summarize
+
+    d = dt.date(2026, 11, 11)
+    north = Menu("fclt", "북측", d, "", ["로제마라샹궈", "석식(5,500원)", "유부우동국물", "순살돈까스", "쌀밥"], meal="석식")
+    east = Menu("east1", "동측", d, "", ["베이컨크림스파게티", "유부김치국"], meal="석식",
+                price_table=parse_price_table("조식(5,500원)\n1층 味퍼레이드한식 (5,500원)\n2층 味퍼레이드한식 (중식.석식) (6,500원)"))
+    menus = [east, north]
+    lines = summarize(menus, config.MAIN_KEYWORDS, (), (), config.MUST_SHOW_KEYWORDS)
+    msg = format_compact(menus, lines, config.SHORT_NAMES, d, True)
+    assert msg.splitlines()[1:] == [
+        "동측 6,500원 | 베이컨크림스파게티 · 유부김치국",
+        "북측 5,500원 | 로제마라샹궈 · 순살돈까스 · 쌀밥 · 유부우동국물",
+    ]

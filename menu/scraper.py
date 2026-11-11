@@ -16,10 +16,14 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) kaist-lunch-
 ALLERGEN_RE = re.compile(r"\s*\(?\d{1,2}(?:\s*,\s*\d{1,2})*\)?(?=\s|$)")
 # 가격: "5,500원", "6500원"
 PRICE_RE = re.compile(r"(\d{1,3}(?:,\d{3})+|\d{4,6})\s*원")
-# 페이지 안의 기본 가격 안내: "중식(5,500원) / 외부인(6,300원)"
-BASE_PRICE_RE = re.compile(
-    r"중식\s*\(\s*([\d,]+\s*원)\s*\)(?:\s*/?\s*외부인\s*\(\s*([\d,]+\s*원)\s*\))?"
-)
+# 페이지 안의 기본 가격 안내: "중식(5,500원) / 외부인(6,300원)"  (석식도 같은 형식)
+def _base_price_re(meal: str) -> re.Pattern:
+    return re.compile(
+        meal + r"\s*\(\s*([\d,]+\s*원)\s*\)(?:\s*/?\s*외부인\s*\(\s*([\d,]+\s*원)\s*\))?"
+    )
+
+
+MEALS = {"lunch": "중식", "dinner": "석식"}
 
 
 @dataclass
@@ -34,6 +38,7 @@ class Menu:
     # 페이지 안내문의 가격표: [("1층 味퍼레이드한식", "5,500원"), ("고메가든(일품)", "6,500원"), ...]
     price_table: list[tuple[str, str]] = field(default_factory=list)
     url: str = ""
+    meal: str = "중식"  # '중식' 또는 '석식'
     error: str | None = None
 
     @property
@@ -68,14 +73,14 @@ def _clean_line(line: str) -> str:
     return _normalize_price(line)
 
 
-def _find_lunch_cell(soup: BeautifulSoup):
-    """헤더에 '중식'이 있는 표에서 해당 열의 첫 데이터 칸을 찾는다."""
+def _find_meal_cell(soup: BeautifulSoup, meal: str = "중식"):
+    """헤더에 '중식'(또는 '석식')이 있는 표에서 해당 열의 첫 데이터 칸을 찾는다."""
     for table in soup.find_all("table"):
         rows = table.find_all("tr")
         if len(rows) < 2:
             continue
         headers = [c.get_text(" ", strip=True) for c in rows[0].find_all(["th", "td"])]
-        idx = next((i for i, h in enumerate(headers) if "중식" in h), None)
+        idx = next((i for i, h in enumerate(headers) if meal in h), None)
         if idx is None:
             continue
         for row in rows[1:]:
@@ -100,10 +105,10 @@ def parse_price_table(text: str) -> list[tuple[str, str]]:
     return table
 
 
-def parse_lunch(html: str) -> tuple[str, list[str], str | None, str | None]:
-    """(운영시간, 메뉴 줄 목록, 기본가격, 외부인가격)"""
+def parse_lunch(html: str, meal: str = "중식") -> tuple[str, list[str], str | None, str | None]:
+    """(운영시간, 메뉴 줄 목록, 기본가격, 외부인가격)  meal: '중식' 또는 '석식'"""
     soup = BeautifulSoup(html, "html.parser")
-    header, cell = _find_lunch_cell(soup)
+    header, cell = _find_meal_cell(soup, meal)
 
     hours = ""
     if header:
@@ -123,7 +128,7 @@ def parse_lunch(html: str) -> tuple[str, list[str], str | None, str | None]:
                     items.append(cleaned)
 
     price = outside = None
-    m = BASE_PRICE_RE.search(soup.get_text(" "))
+    m = _base_price_re(meal).search(soup.get_text(" "))
     if m:
         price = _normalize_price(m.group(1).replace(" ", ""))
         outside = _normalize_price(m.group(2).replace(" ", "")) if m.group(2) else None
@@ -131,12 +136,13 @@ def parse_lunch(html: str) -> tuple[str, list[str], str | None, str | None]:
     return hours, items, price, outside
 
 
-def get_lunch_menu(base_url: str, code: str, name: str, date: dt.date) -> Menu:
+def get_lunch_menu(base_url: str, code: str, name: str, date: dt.date, meal: str = "중식") -> Menu:
     params = {"dvs_cd": code, "stt_dt": date.isoformat()}
     menu = Menu(code=code, name=name, date=date, url=f"{base_url}?dvs_cd={code}&stt_dt={date}")
     try:
         html = fetch_html(base_url, params)
-        menu.hours, menu.items, menu.price, menu.outside_price = parse_lunch(html)
+        menu.hours, menu.items, menu.price, menu.outside_price = parse_lunch(html, meal)
+        menu.meal = meal
         menu.price_table = parse_price_table(BeautifulSoup(html, "html.parser").get_text("\n"))
     except Exception as exc:  # 한 식당이 실패해도 나머지는 보냄
         menu.error = str(exc)

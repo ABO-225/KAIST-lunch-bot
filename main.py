@@ -17,7 +17,7 @@ from pathlib import Path
 import config
 from menu.formatter import format_compact, format_message
 from menu.summarizer import summarize
-from menu.scraper import get_lunch_menu
+from menu.scraper import MEALS, get_lunch_menu
 
 LOG_DIR = Path(__file__).parent / "logs"
 
@@ -46,6 +46,7 @@ def main() -> int:
     parser.add_argument("--date", help="YYYY-MM-DD (기본: 오늘)")
     parser.add_argument("--force", action="store_true", help="메뉴가 비어도 전송")
     parser.add_argument("--full", action="store_true", help="요약 없이 전체 메뉴")
+    parser.add_argument("--meal", choices=["lunch", "dinner"], default="lunch", help="점심(lunch) / 저녁(dinner)")
     parser.add_argument("--out", help="카톡으로 보내지 않고 이 파일에 저장 (iPhone 단축어용)")
     parser.add_argument("--list-rooms", action="store_true", help="열려 있는 카톡 채팅방 이름 출력")
     args = parser.parse_args()
@@ -60,7 +61,8 @@ def main() -> int:
     setup_logging()
     date = dt.date.fromisoformat(args.date) if args.date else dt.date.today()
 
-    menus = [get_lunch_menu(config.MENU_URL, code, name, date) for code, name in config.CAFETERIAS]
+    meal = MEALS[args.meal]
+    menus = [get_lunch_menu(config.MENU_URL, code, name, date, meal) for code, name in config.CAFETERIAS]
     for m in menus:
         if m.error:
             logging.warning("%s 실패: %s", m.name, m.error)
@@ -74,7 +76,13 @@ def main() -> int:
     if args.full:
         text = format_message(menus, date)
     else:
-        lines = summarize(menus, config.MAIN_KEYWORDS, config.DESSERT_KEYWORDS)
+        lines = summarize(
+            menus,
+            config.MAIN_KEYWORDS,
+            config.DESSERT_KEYWORDS,
+            getattr(config, "AFTER_RICE_KEYWORDS", ()),
+            getattr(config, "MUST_SHOW_KEYWORDS", ()),
+        )
         text = format_compact(menus, lines, config.SHORT_NAMES, date, config.SHOW_PRICE)
 
     if args.dry_run:

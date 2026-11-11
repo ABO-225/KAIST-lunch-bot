@@ -22,7 +22,7 @@ SIDE_KEYWORDS = (
     "깻잎지", "콩자반", "멸치", "생채", "겉절이", "식혜",
 )
 MAIN_RICE_PREFIX = ("볶음", "덮", "비빔", "김", "초", "주먹", "솥", "카레", "오므", "국")
-SOUP_SUFFIX = ("국", "탕", "찌개", "전골", "개장", "스프", "수프", "짬뽕")
+SOUP_SUFFIX = ("국", "국물", "탕", "찌개", "전골", "개장", "스프", "수프", "짬뽕")
 CORNER_RE = re.compile(r"^[\(\[].*[\)\]]$")
 PRICE_RE = re.compile(r"[\d,]+원")
 
@@ -66,6 +66,10 @@ def _corner_label(line: str) -> tuple[str, str | None]:
     return label, price
 
 
+# 메뉴 칸 안에 섞여 있는 가격 안내 줄: "석식(5,500원)", "중식 5,500원", "(6,000원)"
+PRICE_ONLY_RE = re.compile(r"^(?:조식|중식|석식|외부인)?\s*[\(\[]?\s*[\d,]+\s*원\s*[\)\]]?$")
+
+
 def _split_corners(items: list[str]) -> list[tuple[str | None, str | None, list[str]]]:
     corners: list[tuple[str | None, str | None, list[str]]] = []
     current: list[str] = []
@@ -73,6 +77,12 @@ def _split_corners(items: list[str]) -> list[tuple[str | None, str | None, list[
     price: str | None = None
     for item in items:
         if CALORIE_RE.search(item):  # 총 칼로리 줄 제거
+            continue
+        pm = PRICE_ONLY_RE.match(item.strip())
+        if pm:  # "석식(5,500원)" 같은 가격 안내 줄 → 메뉴가 아니라 이 코너의 가격
+            if price is None:
+                found = PRICE_RE.search(item)
+                price = found.group(0) if found else None
             continue
         if CORNER_LINE_RE.match(item.strip()):
             if current:
@@ -105,7 +115,7 @@ def _has_main_keyword(item: str, keywords) -> bool:
 Corner = tuple  # (코너 이름 | None, 가격 | None, 요약 문자열)
 
 
-def summarize_corners(items: list[str], main_keywords=(), dessert_keywords=(), after_rice_keywords=()) -> list[Corner]:
+def summarize_corners(items: list[str], main_keywords=(), dessert_keywords=(), after_rice_keywords=(), must_keywords=()) -> list[Corner]:
     parts: list[Corner] = []
     for label, price, corner in _split_corners(items):
         mains, rice, after_rice, soup, dessert = [], [], [], [], []
@@ -113,6 +123,10 @@ def summarize_corners(items: list[str], main_keywords=(), dessert_keywords=(), a
         others = []
         for item in corner:
             if any(k in item for k in ALWAYS_SKIP):
+                continue
+            # 반드시 표시(로제·마라 등): 반찬 판별 없이 메인으로
+            if _has_main_keyword(item, must_keywords):
+                mains.append(item)
                 continue
             # 디저트·밥 뒤 메뉴는 반찬 판별보다 먼저 확인
             if _has_main_keyword(item, dessert_keywords):
@@ -136,7 +150,9 @@ def summarize_corners(items: list[str], main_keywords=(), dessert_keywords=(), a
                 others.append(item)
         if not mains and others:
             mains = others[:1]
-        picked = mains[:5] + rice[:1] + after_rice + soup[:1] + dessert
+        must = [x for x in mains if _has_main_keyword(x, must_keywords)]
+        mains = must + [x for x in mains if x not in must][: max(0, 5 - len(must))]
+        picked = mains + rice[:1] + after_rice + soup[:1] + dessert
         if not picked:
             continue
         text = " · ".join(_tidy(re.split(r"\s*[*&+]", x)[0]) for x in picked)
@@ -144,17 +160,17 @@ def summarize_corners(items: list[str], main_keywords=(), dessert_keywords=(), a
     return parts
 
 
-def summarize_items(items: list[str], main_keywords=(), dessert_keywords=(), after_rice_keywords=()) -> str:
+def summarize_items(items: list[str], main_keywords=(), dessert_keywords=(), after_rice_keywords=(), must_keywords=()) -> str:
     """한 줄 문자열 (테스트·간단 확인용)"""
     out = []
-    for label, price, text in summarize_corners(items, main_keywords, dessert_keywords, after_rice_keywords):
+    for label, price, text in summarize_corners(items, main_keywords, dessert_keywords, after_rice_keywords, must_keywords):
         out.append(text + (f" ({price})" if price else ""))
     return " / ".join(out)
 
 
-def summarize(menus: list[Menu], main_keywords=(), dessert_keywords=(), after_rice_keywords=()) -> dict[str, list[Corner]]:
+def summarize(menus: list[Menu], main_keywords=(), dessert_keywords=(), after_rice_keywords=(), must_keywords=()) -> dict[str, list[Corner]]:
     """{식당 코드: [(코너, 가격, 요약), ...]}"""
     return {
-        m.code: summarize_corners(m.items, main_keywords, dessert_keywords, after_rice_keywords)
+        m.code: summarize_corners(m.items, main_keywords, dessert_keywords, after_rice_keywords, must_keywords)
         for m in menus
     }

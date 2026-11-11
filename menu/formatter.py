@@ -14,14 +14,28 @@ def corner_price(m: Menu, label: str | None, own_price: str | None) -> str | Non
     if own_price:
         return own_price
     if label:
+        other = "중식" if m.meal == "석식" else "석식"
         for name, price in m.price_table:
-            if label in name and "조식" not in name and "석식)" not in name:
-                return price
-    return m.price
+            if label not in name or "조식" in name:
+                continue
+            # 다른 끼니 전용 가격은 건너뜀 (예: 점심 메시지에서 '(석식)' 전용 가격)
+            if other in name and m.meal not in name:
+                continue
+            return price
+    if m.price:
+        return m.price
+    # 기본 가격이 없으면 안내문에서 이 끼니가 적힌 가격 (예: "2층 味퍼레이드한식 (중식.석식) (6,500원)")
+    for name, price in m.price_table:
+        if m.meal in name and "조식" not in name:
+            return price
+    return None
 
 
-def _header(date: dt.date) -> str:
-    return f"[KAIST 점심] {date:%m/%d}({WEEKDAYS[date.weekday()]})"
+TITLES = {"중식": "점심", "석식": "저녁"}
+
+
+def _header(date: dt.date, meal: str = "중식") -> str:
+    return f"[KAIST {TITLES.get(meal, meal)}] {date:%m/%d}({WEEKDAYS[date.weekday()]})"
 
 
 def format_compact(menus: list[Menu], corners: dict[str, list], short_names: dict[str, str], date: dt.date, show_price: bool = True) -> str:
@@ -32,7 +46,7 @@ def format_compact(menus: list[Menu], corners: dict[str, list], short_names: dic
      - 일품 6,500원 | 돈까스
      - A코너 | 제육볶음 · 쌀밥 · 된장국
     """
-    out = [_header(date)]
+    out = [_header(date, menus[0].meal if menus else "중식")]
     for m in menus:
         name = short_names.get(m.code, m.name)
         items = corners.get(m.code) or []
@@ -59,7 +73,7 @@ def format_compact(menus: list[Menu], corners: dict[str, list], short_names: dic
 
 def format_message(menus: list[Menu], date: dt.date) -> str:
     """전체 메뉴 (요약 전 원본 확인용)"""
-    lines = [_header(date)]
+    lines = [_header(date, menus[0].meal if menus else "중식")]
     for m in menus:
         lines.append("")
         title = f"■ {m.name}"
