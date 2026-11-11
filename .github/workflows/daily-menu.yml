@@ -1,0 +1,34 @@
+name: daily-menu
+
+on:
+  schedule:
+    # GitHub 예약 실행은 수십 분 늦어질 수 있어서 넉넉히 두 번 실행 (KST 10:00, 10:50)
+    - cron: "0 1 * * *"
+    - cron: "50 1 * * *"
+  workflow_dispatch: {}   # Actions 탭에서 수동 실행
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Seoul
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests beautifulsoup4
+      - name: 오늘 메뉴 만들기
+        run: python main.py --out docs/today.txt
+      - name: 메뉴 확인
+        run: cat docs/today.txt
+      - name: 저장소에 반영
+        run: |
+          git config user.name "menu-bot"
+          git config user.email "menu-bot@users.noreply.github.com"
+          git add docs/today.txt
+          git diff --cached --quiet || git commit -m "menu $(date +%F)"
+          git push

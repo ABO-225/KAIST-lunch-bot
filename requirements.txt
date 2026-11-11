@@ -1,0 +1,4 @@
+requests>=2.31
+beautifulsoup4>=4.12
+pywin32>=306; sys_platform == "win32"
+pytest>=8
