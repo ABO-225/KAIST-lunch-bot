@@ -181,3 +181,15 @@ def test_dinner_price_line_and_fallback():
         "동측 6,500원 | 베이컨크림스파게티 · 유부김치국",
         "북측 5,500원 | 로제마라샹궈 · 순살돈까스 · 쌀밥 · 유부우동국물",
     ]
+
+
+def test_write_out_keeps_better_file(tmp_path):
+    import main
+
+    d = dt.date(2026, 11, 11)
+    f = tmp_path / "today.txt"
+    main._write_out(str(f), "[KAIST 점심] 11/11(수)\n동측 | 쌀밥", d, 0)
+    main._write_out(str(f), "", d, 3)  # 나중 실행이 전부 실패 → 유지
+    assert "쌀밥" in f.read_text(encoding="utf-8")
+    main._write_out(str(f), "", dt.date(2026, 11, 12), 3)  # 다음날 실패 → 비움 (어제 메뉴 안 보냄)
+    assert f.read_text(encoding="utf-8") == ""

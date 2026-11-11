@@ -50,7 +50,7 @@ def fetch_html(url: str, params: dict, retries: int = 3) -> str:
     last_exc: Exception | None = None
     for attempt in range(retries):
         try:
-            resp = requests.get(url, params=params, headers=HEADERS, timeout=15)
+            resp = requests.get(url, params=params, headers=HEADERS, timeout=(6, 20))
             resp.raise_for_status()
             resp.encoding = resp.apparent_encoding or "utf-8"
             return resp.text
